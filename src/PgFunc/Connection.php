@@ -187,7 +187,7 @@ namespace PgFunc {
                         if ($errorType !== null) {
                             if (class_exists($errorType)) {
                                 // These exceptions should be inherited from Specified exception class.
-                                throw new $errorType('', 0, $exception);
+                                throw new $errorType(null, 0, $exception);
                             }
                             throw new Specified($errorType, 0, $exception);
                         }
