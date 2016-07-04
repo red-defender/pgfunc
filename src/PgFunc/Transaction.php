@@ -72,9 +72,12 @@ namespace PgFunc {
          * Rollback all pending transactions.
          *
          * @param string $connectionId Unique connection ID.
+         * @return bool There was a pending transaction.
          */
         final public static function deactivateConnection($connectionId) {
+            $isTransaction = ! empty(self::$savepoints[$connectionId]);
             unset(self::$savepoints[$connectionId]);
+            return $isTransaction;
         }
 
         /**

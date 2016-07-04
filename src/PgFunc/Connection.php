@@ -14,6 +14,11 @@ namespace PgFunc {
      */
     class Connection {
         /**
+         * Number of attempts to execute query.
+         */
+        const QUERY_ATTEMPTS_LIMIT = 3;
+
+        /**
          * @var PDO Current connection.
          */
         private $db;
@@ -58,13 +63,20 @@ namespace PgFunc {
          *
          * @param Procedure $procedure
          * @return mixed Result of procedure call.
+         * @throws
          */
         final public function queryProcedure(Procedure $procedure) {
             list ($sql, $parameters) = $procedure->generateQueryData();
-            $statement = $this->getStatement($sql);
-            $this->bindParams($statement, $parameters);
-            $this->executeStatement($statement, $procedure);
-            return $this->fetchResult($statement, $procedure);
+            $exception = null;
+            for ($tryCount = 0; $tryCount < self::QUERY_ATTEMPTS_LIMIT; $tryCount++) {
+                $statement = $this->getStatement($sql);
+                $this->bindParams($statement, $parameters);
+                $exception = $this->executeStatement($statement, $procedure);
+                if (! $exception) {
+                    return $this->fetchResult($statement, $procedure);
+                }
+            }
+            throw $exception;
         }
 
         /**
@@ -169,36 +181,16 @@ namespace PgFunc {
          *
          * @param PDOStatement $statement
          * @param Procedure $procedure
+         * @return Database|null Database exception in case of error.
          * @throws Database When executing is failed.
          * @throws Specified When database exception is known and specified.
          */
         private function executeStatement(PDOStatement $statement, Procedure $procedure) {
             try {
                 $statement->execute();
+                return null;
             } catch (PDOException $exception) {
-                switch ($exception->getCode()) {
-                    // Raised exceptions in stored procedures or specified constraint violations.
-                    case 'P0001': // RAISE_EXCEPTION.
-                    case '23503': // FOREIGN_KEY_VIOLATION.
-                    case '23505': // UNIQUE_VIOLATION.
-                    case '23514': // CHECK_VIOLATION.
-                        // Recognizing cause of error.
-                        $errorType = $procedure->handleError($exception->getMessage());
-                        if ($errorType !== null) {
-                            if (class_exists($errorType)) {
-                                // These exceptions should be inherited from Specified exception class.
-                                throw new $errorType(null, 0, $exception);
-                            }
-                            throw new Specified($errorType, 0, $exception);
-                        }
-                        break;
-                }
-
-                throw new Database(
-                    'Failed to execute statement: ' . $exception->getMessage(),
-                    Exception::FAILED_QUERY,
-                    $exception
-                );
+                return $this->handleException($exception, $procedure);
             }
         }
 
@@ -229,6 +221,75 @@ namespace PgFunc {
                 }
             }
             return $procedure->getIsSingleRow() ? null : $result;
+        }
+
+        /**
+         * Handle PDO exception while executing statement.
+         *
+         * @param PDOException $exception
+         * @param Procedure $procedure
+         * @return Database Last database error.
+         * @throws Database When executing is failed.
+         * @throws Specified When database exception is known and specified.
+         */
+        private function handleException(PDOException $exception, Procedure $procedure) {
+            $databaseException = new Database(
+                'Failed to execute statement: ' . $exception->getMessage(),
+                Exception::FAILED_QUERY,
+                $exception
+            );
+            switch ($exception->getCode()) {
+                // Raised exceptions in stored procedures or specified constraint violations.
+                case 'P0001': // RAISE_EXCEPTION.
+                case '23503': // FOREIGN_KEY_VIOLATION.
+                case '23505': // UNIQUE_VIOLATION.
+                case '23514': // CHECK_VIOLATION.
+                case '23P01': // EXCLUSION_VIOLATION.
+                    // Recognizing cause of error.
+                    $errorType = $procedure->handleError($exception->getMessage());
+                    if ($errorType !== null) {
+                        if (class_exists($errorType)) {
+                            // These exceptions should be inherited from Specified exception class.
+                            throw new $errorType(null, 0, $exception);
+                        }
+                        throw new Specified($errorType, 0, $exception);
+                    }
+                    throw $databaseException;
+
+                // Connection errors.
+                case '08000': // CONNECTION_EXCEPTION.
+                case '08001': // SQLCLIENT_UNABLE_TO_ESTABLISH_SQLCONNECTION.
+                case '08003': // CONNECTION_DOES_NOT_EXIST.
+                case '08004': // SQLSERVER_REJECTED_ESTABLISHMENT_OF_SQLCONNECTION.
+                case '08006': // CONNECTION_FAILURE.
+                case '08007': // TRANSACTION_RESOLUTION_UNKNOWN.
+                case '08P01': // PROTOCOL_VIOLATION.
+                case '57P01': // ADMIN_SHUTDOWN.
+                case '57P02': // CRASH_SHUTDOWN.
+                case '57P03': // CANNOT_CONNECT_NOW.
+                case 'HY000': // PHP_UNKNOWN_ERROR.
+                    if (Transaction::deactivateConnection($this->connectionId)) {
+                        // Don't reconnect silently if there was a pending transaction.
+                        throw $databaseException;
+                    }
+                    try {
+                        $this->connect();
+                    } catch (Database $databaseException) {
+                        // Return last exception if connecting failed.
+                    }
+                    break;
+
+                // Serialization errors.
+                case '40001': // SERIALIZATION_FAILURE.
+                case '40P01': // DEADLOCK_DETECTED.
+                    // Simple retrying.
+                    break;
+
+                // All other errors.
+                default:
+                    throw $databaseException;
+            }
+            return $databaseException;
         }
     }
 }

@@ -56,7 +56,7 @@ namespace PgFunc {
         /**
          * Remove connection from pool.
          *
-         * @param $connectionName string|null Connection name (null means all connections in pool).
+         * @param string|null $connectionName Connection name (null means all connections in pool).
          */
         final public static function disconnect($connectionName = null) {
             if (is_null($connectionName)) {
