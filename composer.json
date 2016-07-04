@@ -1,0 +1,13 @@
+{
+    "name" : "red-defender/pgfunc",
+    "description" : "PHP library for interacting with PostgreSQL connections, transactions and stored procedures",
+    "license" : "LGPL-3.0",
+    "require" : {
+        "php" : ">=5.5.0",
+        "ext-pdo" : "*",
+        "ext-pdo_pqsql" : "*"
+    },
+    "autoload" : {
+        "psr-4" : {"PgFunc\\" : "src/PgFunc/"}
+    }
+}
