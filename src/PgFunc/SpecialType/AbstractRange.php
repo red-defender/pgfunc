@@ -30,34 +30,13 @@ namespace PgFunc\SpecialType {
          * @inheritdoc
          */
         final public function getSql($value, $prefix) {
-            $params = [];
-            foreach ($this->buildValueArray($value, $prefix) as $key => $item) {
-                $params[] = is_null($item) ? 'NULL' : $key;
-            }
-            return static::getTypeName() . '(' . implode(',', $params) . ')';
+            return static::getTypeName() . '(' . implode(',', array_keys($this->getParameter($value, $prefix))) . ')';
         }
 
         /**
          * @inheritdoc
          */
         final public function getParameter($value, $prefix) {
-            $return = [];
-            foreach ($this->buildValueArray($value, $prefix) as $key => $item) {
-                if (! is_null($item)) {
-                    $return[$key] = $item;
-                }
-            }
-            return $return;
-        }
-
-        /**
-         * Build value array for binding.
-         *
-         * @param array $value Parameter value.
-         * @param string $prefix Bind name.
-         * @return array
-         */
-        private function buildValueArray(array $value, $prefix) {
             $value = array_values($value);
             $return = [
                 ':' . $prefix . 'l' => $value[0],
@@ -67,6 +46,13 @@ namespace PgFunc\SpecialType {
                 $return[':' . $prefix . 'b'] = $value[2];
             }
             return $return;
+        }
+
+        /**
+         * @inheritdoc
+         */
+        final public function isCacheable() {
+            return false;
         }
     }
 }

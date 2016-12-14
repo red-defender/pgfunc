@@ -48,6 +48,13 @@ namespace PgFunc {
         abstract public function getParameter($value, $prefix);
 
         /**
+         * SQL code for parameter can be cached.
+         *
+         * @return bool
+         */
+        abstract public function isCacheable();
+
+        /**
          * @param mixed $value
          * @return bool
          */

@@ -162,9 +162,13 @@ namespace PgFunc {
          */
         private function getFlags($value) {
             switch (true) {
+                case is_null($value):
+                    return PDO::PARAM_NULL;
+
                 case is_bool($value):
                     return PDO::PARAM_BOOL;
 
+                case is_int($value);
                 case is_float($value):
                     return PDO::PARAM_INT;
 

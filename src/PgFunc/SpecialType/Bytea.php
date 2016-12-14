@@ -34,5 +34,12 @@ namespace PgFunc\SpecialType {
         public function getParameter($value, $prefix) {
             return [':' . $prefix => $value];
         }
+
+        /**
+         * @inheritdoc
+         */
+        public function isCacheable() {
+            return true;
+        }
     }
 }

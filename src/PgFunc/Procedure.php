@@ -68,6 +68,16 @@ namespace PgFunc {
         protected $data = [];
 
         /**
+         * @var bool SQL query string can be cached.
+         */
+        protected $isCacheable = true;
+
+        /**
+         * @var string|null Cached SQL query string.
+         */
+        protected $sqlCache;
+
+        /**
          * Constructor method may be overridden to pass name check.
          *
          * @param string $name Procedure name (optionally schema-qualified).
@@ -105,10 +115,19 @@ namespace PgFunc {
                 }
 
                 $this->variadic = $name;
+                $this->isCacheable = false;
+            }
+
+            if (is_array($definition) || ($definition instanceof SpecialType && ! $definition->isCacheable())) {
+                $this->isCacheable = false;
             }
 
             $this->parameterList[$name] = $definition;
-            $this->optionalList[$name] = (bool) $isOptional;
+            $this->sqlCache = null;
+            if ($isOptional) {
+                $this->optionalList[$name] = true;
+                $this->isCacheable = false;
+            }
         }
 
         /**
@@ -126,6 +145,7 @@ namespace PgFunc {
                 throw new Usage('Unknown return type: ' . $returnType, Exception::INVALID_RETURN_TYPE);
             }
             $this->returnType = $returnType;
+            $this->sqlCache = null;
         }
 
         /**
@@ -219,7 +239,7 @@ namespace PgFunc {
          */
         final public function generateQueryData() {
             foreach (array_keys($this->parameterList) as $name) {
-                if (! array_key_exists($name, $this->data) && ! $this->optionalList[$name]) {
+                if (! array_key_exists($name, $this->data) && empty($this->optionalList[$name])) {
                     throw new Usage('Required parameter is missing: ' . $name, Exception::INVALID_DATA);
                 }
             }
@@ -391,6 +411,9 @@ namespace PgFunc {
          * @return string
          */
         private function generateSql() {
+            if ($this->sqlCache) {
+                return $this->sqlCache;
+            }
             $sql = $this->name . '(' . $this->generateSqlParameters() . ')';
             switch ($this->returnType) {
                 case self::RETURN_SIMPLE:
@@ -403,7 +426,11 @@ namespace PgFunc {
                     $sql = 'ARRAY_TO_JSON(' . $sql . ') AS ' . self::RESULT_FIELD;
                     break;
             }
-            return 'SELECT ' . $sql;
+            $sql = 'SELECT ' . $sql;
+            if ($this->isCacheable) {
+                $this->sqlCache = $sql;
+            }
+            return $sql;
         }
 
         /**
@@ -438,19 +465,14 @@ namespace PgFunc {
          * @return string SQL placeholder string.
          */
         private function generateSqlValue($value, $definition, $prefix, $isType = false) {
-            // Special NULL value.
-            if (is_null($value)) {
-                return 'NULL' . ($isType ? '::' . $this->generateSqlType($definition) : '');
+            // Special NULL or scalar value.
+            if (is_null($value) || is_string($definition)) {
+                return ':' . $prefix . ($isType ? '::' . $this->generateSqlType($definition) : '');
             }
 
             // Special type.
             if ($definition instanceof SpecialType) {
                 return $definition->getSql($value, $prefix);
-            }
-
-            // Scalar value.
-            if (is_string($definition)) {
-                return ':' . $prefix . ($isType ? '::' . $definition : '');
             }
 
             // Array.
@@ -522,7 +544,7 @@ namespace PgFunc {
         private function generateParameterValue($value, $definition, $prefix) {
             // Special NULL value.
             if (is_null($value)) {
-                return [];
+                return [':' . $prefix => $value];
             }
 
             // Special type.

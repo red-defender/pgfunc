@@ -27,12 +27,10 @@ namespace PgFunc\SpecialType {
          * @inheritdoc
          */
         public function getSql($value, $prefix) {
+            $count = count($value);
             $hstore = [];
-            $index = 0;
-            foreach ($value as $item) {
-                $item = isset($item) ? ':' . $prefix . 'v' . $index : 'NULL';
-                $hstore[] = ':' . $prefix . 'k' . $index . ',' . $item;
-                $index++;
+            for ($index = 0; $index < $count; $index++) {
+                $hstore[] = ':' . $prefix . 'k' . $index . ',:' . $prefix . 'v' . $index;
             }
             return 'HSTORE(ARRAY[' . implode(',', $hstore) . ']::TEXT[])';
         }
@@ -45,12 +43,17 @@ namespace PgFunc\SpecialType {
             $hstore = [];
             foreach ($value as $name => $item) {
                 $hstore[':' . $prefix . 'k' . $index] = $name;
-                if (isset($item)) {
-                    $hstore[':' . $prefix . 'v' . $index] = $item;
-                }
+                $hstore[':' . $prefix . 'v' . $index] = $item;
                 $index++;
             }
             return $hstore;
+        }
+
+        /**
+         * @inheritdoc
+         */
+        public function isCacheable() {
+            return false;
         }
     }
 }
