@@ -252,28 +252,25 @@ namespace PgFunc {
          * @param string $identifier Database object name.
          * @param string $message Error message for exception.
          * @param bool $isQualified Schema-qualified name.
-         * @param bool $isType Checking type name.
          * @return string Checked name.
          * @throws Usage When identifier is invalid.
          */
-        private function checkIdentifier($identifier, $message, $isQualified = false, $isType = false) {
-            $pattern = '([a-z_][a-z0-9_\$' . ($isType ? '\s' : '') . ']*|"(?:[^"\x00]|"")+")';
+        private function checkIdentifier($identifier, $message, $isQualified = false) {
+            $pattern = '([a-z_][a-z0-9_\$]*|"(?:[^"\x00]|"")+")';
             if ($isQualified) {
-                $pattern = '([a-z_][a-z0-9_\$]*|"(?:[^"\x00]|"")+")(?:\s*\.\s*' . $pattern . ')?';
+                $pattern = '(?:' . $pattern . '\s*\.\s*)?' . $pattern;
             }
             if (! preg_match('/^' . $pattern . '$/isDS', $identifier, $parts)) {
                 throw new Usage($message, Exception::INVALID_IDENTIFIER);
             }
 
             unset($parts[0]);
-            if (! $isType) {
-                $parts = array_map(
-                    function ($part) {
-                        return ($part[0] === '"') ? $part : '"' . strtolower($part) . '"';
-                    },
-                    $parts
-                );
-            }
+            $parts = array_map(
+                function ($part) {
+                    return ($part[0] === '"') ? $part : '"' . strtolower($part) . '"';
+                },
+                $parts
+            );
             return implode('.', $parts);
         }
 
@@ -293,7 +290,6 @@ namespace PgFunc {
                 return $this->checkIdentifier(
                     $definition,
                     'Invalid definition of ' . $keyPath . ' parameter: ' . $definition,
-                    true,
                     true
                 );
             } elseif (is_array($definition)) {
@@ -310,7 +306,6 @@ namespace PgFunc {
                 $newDefinition[Mapper::RECORD_TYPE] = $this->checkIdentifier(
                     $definition[Mapper::RECORD_TYPE],
                     'Invalid type of ' . $keyPath . ' record: ' . $definition[Mapper::RECORD_TYPE],
-                    true,
                     true
                 );
 

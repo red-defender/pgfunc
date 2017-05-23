@@ -142,7 +142,6 @@ namespace PgFunc {
          * @throws Database When binding is failed.
          */
         private function bindParams(PDOStatement $statement, array $params) {
-            $name = null;
             try {
                 foreach ($params as $name => $value) {
                     $statement->bindValue($name, $value, $this->getFlags($value));
@@ -286,7 +285,10 @@ namespace PgFunc {
                 // Serialization errors.
                 case '40001': // SERIALIZATION_FAILURE.
                 case '40P01': // DEADLOCK_DETECTED.
-                    // Simple retrying.
+                    // Simple retrying if not in transaction.
+                    if (Transaction::isActive($this->connectionId)) {
+                        throw $databaseException;
+                    }
                     break;
 
                 // All other errors.

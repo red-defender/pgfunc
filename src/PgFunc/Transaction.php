@@ -69,13 +69,23 @@ namespace PgFunc {
         }
 
         /**
+         * Recognizing active transaction for connection.
+         *
+         * @param string $connectionId Unique connection ID.
+         * @return bool There is a pending transaction.
+         */
+        final public static function isActive($connectionId) {
+            return ! empty(self::$savepoints[$connectionId]);
+        }
+
+        /**
          * Rollback all pending transactions.
          *
          * @param string $connectionId Unique connection ID.
          * @return bool There was a pending transaction.
          */
         final public static function deactivateConnection($connectionId) {
-            $isTransaction = ! empty(self::$savepoints[$connectionId]);
+            $isTransaction = self::isActive($connectionId);
             unset(self::$savepoints[$connectionId]);
             return $isTransaction;
         }
@@ -113,11 +123,11 @@ namespace PgFunc {
          * Set local PostgreSQL configuration parameter.
          *
          * @param string $name Setting name.
-         * @param mixed $value Setting value.
-         * @throws Usage When setting name is invalid or transaction is inactive.
+         * @param mixed $value Setting value (null means default value).
+         * @throws Usage When transaction is inactive.
          * @throws Database When query fails.
          */
-        final public function setLocal($name, $value) {
+        final public function setLocal($name, $value = null) {
             $isActiveTransaction = $this->savepointId
                 ? isset(self::$savepoints[$this->connectionId][$this->transactionId][$this->savepointId])
                 : isset(self::$savepoints[$this->connectionId][$this->transactionId]);
@@ -125,15 +135,15 @@ namespace PgFunc {
                 throw new Usage('Transaction or connection is already closed', Exception::TRANSACTION_ERROR);
             }
 
-            if (! preg_match('/^[a-z0-9_\.\s]+$/isDS', $name)) {
-                throw new Usage('Setting name is invalid: ' . $name, Exception::INVALID_IDENTIFIER);
-            }
             try {
-                $query = 'SET LOCAL ' . $name . ' TO :value';
-                if (preg_match('/^\s*TIME\s+ZONE\s*$/isDS', $name)) {
-                    $query = 'SET LOCAL TIME ZONE :value';
-                }
-                $this->db->prepare($query)->execute(['value' => $value]);
+                $statement = $this->db->prepare('SELECT set_config(:name::TEXT,:value::TEXT,TRUE)');
+                $statement->bindValue(':name', $name, PDO::PARAM_STR);
+                $statement->bindValue(
+                    ':value',
+                    is_bool($value) ? ($value ? 'on' : 'off') : $value,
+                    is_null($value) ? PDO::PARAM_NULL : PDO::PARAM_STR
+                );
+                $statement->execute();
             } catch (PDOException $exception) {
                 throw new Database(
                     'Error on setting configuration parameter: ' . $name,
