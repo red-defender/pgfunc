@@ -269,7 +269,7 @@ namespace PgFunc {
                 function ($part) {
                     return ($part[0] === '"') ? $part : '"' . strtolower($part) . '"';
                 },
-                $parts
+                array_filter($parts)
             );
             return implode('.', $parts);
         }
