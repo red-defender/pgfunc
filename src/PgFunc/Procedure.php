@@ -1,6 +1,9 @@
 <?php
 namespace PgFunc {
     use PgFunc\Exception\Usage;
+    use PgFunc\OptionTrait\AttemptsCount;
+    use PgFunc\OptionTrait\JsonResult;
+    use PgFunc\OptionTrait\LocalParams;
 
     /**
      * Class for defining stored procedure.
@@ -9,13 +12,15 @@ namespace PgFunc {
      * @package pgfunc
      */
     class Procedure {
+        use AttemptsCount, JsonResult, LocalParams;
+
         /**
          * Possible return types of the procedure.
          */
-        const RETURN_VOID = 'VOID';
+        const RETURN_VOID   = 'VOID';
         const RETURN_SIMPLE = 'SIMPLE';
         const RETURN_RECORD = 'RECORD';
-        const RETURN_ARRAY = 'ARRAY';
+        const RETURN_ARRAY  = 'ARRAY';
 
         /**
          * Alias for result field.
@@ -30,12 +35,12 @@ namespace PgFunc {
         /**
          * @var array Parameters definition array.
          */
-        protected $parameterList = [];
+        protected $parameters = [];
 
         /**
          * @var bool[] Optional parameters flags.
          */
-        protected $optionalList = [];
+        protected $optionals = [];
 
         /**
          * @var string|null VARIADIC parameter name.
@@ -93,11 +98,12 @@ namespace PgFunc {
          * @param mixed $definition Parameter definition.
          * @param bool $isOptional Flag for optional parameter.
          * @param bool $isVariadic Flag for VARIADIC parameter.
+         * @return self
          * @throws Usage When definition is invalid.
          */
         final public function addParameter($name, $definition, $isOptional = false, $isVariadic = false) {
             $name = $this->checkIdentifier($name, 'Invalid parameter name: ' . $name);
-            if (isset($this->parameterList[$name])) {
+            if (isset($this->parameters[$name])) {
                 throw new Usage('Parameter is already defined: ' . $name, Exception::INVALID_DEFINITION);
             }
 
@@ -122,30 +128,33 @@ namespace PgFunc {
                 $this->isCacheable = false;
             }
 
-            $this->parameterList[$name] = $definition;
+            $this->parameters[$name] = $definition;
             $this->sqlCache = null;
             if ($isOptional) {
-                $this->optionalList[$name] = true;
+                $this->optionals[$name] = true;
                 $this->isCacheable = false;
             }
+            return $this;
         }
 
         /**
          * @param string $returnType Current return type (see self::RETURN_* constants).
+         * @return self
          * @throws Usage When return type is unknown.
          */
         final public function setReturnType($returnType) {
-            $returnTypeList = [
+            $returnTypes = [
                 self::RETURN_VOID,
                 self::RETURN_SIMPLE,
                 self::RETURN_RECORD,
                 self::RETURN_ARRAY,
             ];
-            if (! in_array($returnType, $returnTypeList, true)) {
+            if (! in_array($returnType, $returnTypes, true)) {
                 throw new Usage('Unknown return type: ' . $returnType, Exception::INVALID_RETURN_TYPE);
             }
             $this->returnType = $returnType;
             $this->sqlCache = null;
+            return $this;
         }
 
         /**
@@ -157,23 +166,27 @@ namespace PgFunc {
 
         /**
          * @param bool $isSingleRow Result set always contains one row.
+         * @return self
          */
         final public function setIsSingleRow($isSingleRow) {
             $this->isSingleRow = (bool) $isSingleRow;
+            return $this;
         }
 
         /**
          * @return bool Result set always contains one row.
          */
-        final public function getIsSingleRow() {
+        final public function isSingleRow() {
             return $this->isSingleRow;
         }
 
         /**
          * @param callable $resultIdentifierCallback Callback for identifying rows of result set.
+         * @return self
          */
         final public function setResultIdentifierCallback(callable $resultIdentifierCallback) {
             $this->resultIdentifierCallback = $resultIdentifierCallback;
+            return $this;
         }
 
         /**
@@ -185,12 +198,14 @@ namespace PgFunc {
 
         /**
          * @param string[] $errorMap Array of known error messages (keys transform to lowercase).
+         * @return self
          */
         final public function setErrorMap(array $errorMap) {
             $this->errorMap = [];
             foreach ($errorMap as $key => $code) {
                 $this->errorMap[strtolower($key)] = $code;
             }
+            return $this;
         }
 
         /**
@@ -214,21 +229,26 @@ namespace PgFunc {
          *
          * @param string $name Parameter name.
          * @param mixed $data Parameter value.
+         * @return self
          * @throws Usage When value is invalid.
          */
         final public function setData($name, $data) {
             $name = $this->checkIdentifier($name, 'Invalid parameter name: ' . $name);
-            if (empty($this->parameterList[$name])) {
+            if (empty($this->parameters[$name])) {
                 throw new Usage('Unknown parameter: ' . $name, Exception::INVALID_DATA);
             }
-            $this->data[$name] = $this->checkData($this->parameterList[$name], $data, $name);
+            $this->data[$name] = $this->checkData($this->parameters[$name], $data, $name);
+            return $this;
         }
 
         /**
          * Clear all parameters values.
+         *
+         * @return self
          */
         final public function clearData() {
             $this->data = [];
+            return $this;
         }
 
         /**
@@ -238,8 +258,8 @@ namespace PgFunc {
          * @throws Usage When required parameters are missing.
          */
         final public function generateQueryData() {
-            foreach (array_keys($this->parameterList) as $name) {
-                if (! array_key_exists($name, $this->data) && empty($this->optionalList[$name])) {
+            foreach (array_keys($this->parameters) as $name) {
+                if (! array_key_exists($name, $this->data) && empty($this->optionals[$name])) {
                     throw new Usage('Required parameter is missing: ' . $name, Exception::INVALID_DATA);
                 }
             }
@@ -434,18 +454,18 @@ namespace PgFunc {
          * @return string
          */
         private function generateSqlParameters() {
-            $sqlList = [];
+            $sqlParts = [];
             $index = 0;
             foreach ($this->data as $name => $value) {
-                $sql = $this->generateSqlValue($value, $this->parameterList[$name], 'p' . $index, true);
+                $sql = $this->generateSqlValue($value, $this->parameters[$name], 'p' . $index, true);
                 $sql = $name . ':=' . $sql;
                 if ($name === $this->variadic) {
                     $sql = 'VARIADIC ' . $sql;
                 }
-                $sqlList[] = $sql;
+                $sqlParts[] = $sql;
                 $index++;
             }
-            return implode(',', $sqlList);
+            return implode(',', $sqlParts);
         }
 
         /**
@@ -520,7 +540,7 @@ namespace PgFunc {
             $params = [];
             $index = 0;
             foreach ($this->data as $name => $value) {
-                $params += $this->generateParameterValue($value, $this->parameterList[$name], 'p' . $index);
+                $params += $this->generateParameterValue($value, $this->parameters[$name], 'p' . $index);
                 $index++;
             }
             return $params;

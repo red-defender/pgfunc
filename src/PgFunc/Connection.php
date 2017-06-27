@@ -5,6 +5,10 @@ namespace PgFunc {
     use PDOStatement;
     use PgFunc\Exception\Database;
     use PgFunc\Exception\Specified;
+    use PgFunc\Exception\Usage;
+    use PgFunc\OptionTrait\AttemptsCount;
+    use PgFunc\OptionTrait\JsonResult;
+    use PgFunc\OptionTrait\LocalParams;
 
     /**
      * Connection to database.
@@ -13,10 +17,7 @@ namespace PgFunc {
      * @package pgfunc
      */
     class Connection {
-        /**
-         * Number of attempts to execute query.
-         */
-        const QUERY_ATTEMPTS_LIMIT = 3;
+        use AttemptsCount, JsonResult, LocalParams;
 
         /**
          * @var PDO Current connection.
@@ -34,12 +35,23 @@ namespace PgFunc {
         private $connectionId;
 
         /**
+         * @var bool Transactions are allowed in this connection.
+         */
+        private $isTransactionEnabled;
+
+        /**
          * Initialize connection.
          *
          * @param Configuration $configuration
          */
         final public function __construct(Configuration $configuration) {
-            $this->configuration = $configuration;
+            $this->configuration = clone $configuration;
+            $this->isTransactionEnabled = $configuration->isTransactionEnabled();
+
+            $this->queryAttemptsCount = $configuration->getQueryAttemptsCount();
+            $this->isJsonAsArray = $configuration->isJsonAsArray();
+            $this->localParams = $configuration->getLocalParams();
+
             $this->connect();
         }
 
@@ -63,12 +75,18 @@ namespace PgFunc {
          *
          * @param Procedure $procedure
          * @return mixed Result of procedure call.
-         * @throws
+         * @throws Exception
          */
         final public function queryProcedure(Procedure $procedure) {
             list ($sql, $parameters) = $procedure->generateQueryData();
+            $localParams = array_replace($this->localParams, $procedure->getLocalParams());
+            if ($localParams) {
+                $this->applyLocalParams($sql, $parameters, $localParams);
+            }
             $exception = null;
-            for ($tryCount = 0; $tryCount < self::QUERY_ATTEMPTS_LIMIT; $tryCount++) {
+            $queryAttemptsCount = $procedure->getQueryAttemptsCount() ?: $this->queryAttemptsCount ?: 3;
+
+            while (--$queryAttemptsCount >= 0) {
                 $statement = $this->getStatement($sql);
                 $this->bindParams($statement, $parameters);
                 $exception = $this->executeStatement($statement, $procedure);
@@ -83,9 +101,22 @@ namespace PgFunc {
          * Create new transaction (or savepoint) in current connection.
          *
          * @return Transaction
+         * @throws Usage When transactions are not allowed.
          */
         final public function createTransaction() {
+            if (! $this->isTransactionEnabled) {
+                throw new Usage('Transactions are not allowed in this connection', Exception::TRANSACTION_ERROR);
+            }
             return new Transaction($this->db, $this->connectionId);
+        }
+
+        /**
+         * @param bool $isTransactionEnabled Transactions are allowed in this connection.
+         * @return self
+         */
+        final public function setIsTransactionEnabled($isTransactionEnabled) {
+            $this->isTransactionEnabled = (bool) $isTransactionEnabled;
+            return $this;
         }
 
         /**
@@ -101,7 +132,7 @@ namespace PgFunc {
                 $attributes = $this->configuration->getAttributes();
                 $this->db = new PDO(
                     $this->configuration->getDsn(),
-                    $this->configuration->getUserName(),
+                    $this->configuration->getUser(),
                     $this->configuration->getPassword(),
                     $attributes
                 );
@@ -117,6 +148,23 @@ namespace PgFunc {
                     $exception
                 );
             }
+        }
+
+        /**
+         * Modify SQL statement to use local PostgreSQL parameters.
+         *
+         * @param string &$sql SQL statement.
+         * @param array &$parameters Parameters for binding.
+         * @param array $localParams Local PostgreSQL parameters list.
+         */
+        private function applyLocalParams(& $sql, array & $parameters, array $localParams) {
+            $sqlParts = [];
+            foreach (array_keys($localParams) as $paramIndex => $name) {
+                $sqlParts[] = 'set_config(:sn' . $paramIndex . '::TEXT,:sv' . $paramIndex . '::TEXT,TRUE)';
+                $parameters[':sn' . $paramIndex] = $name;
+                $parameters[':sv' . $paramIndex] = $localParams[$name];
+            }
+            $sql = 'WITH sl AS (SELECT ' . implode(',', $sqlParts) . ') ' . $sql . ' FROM sl';
         }
 
         /**
@@ -210,10 +258,11 @@ namespace PgFunc {
             }
 
             $resultIdentifierCallback = $procedure->getResultIdentifierCallback();
+            $isJsonAsArray = $this->prepareIsJsonAsArray($procedure);
             $result = [];
             foreach ($statement as $data) {
-                $data = json_decode($data[Procedure::RESULT_FIELD], true);
-                if ($procedure->getIsSingleRow()) {
+                $data = json_decode($data[Procedure::RESULT_FIELD], $isJsonAsArray);
+                if ($procedure->isSingleRow()) {
                     return $data;
                 }
 
@@ -223,7 +272,22 @@ namespace PgFunc {
                     $result[] = $data;
                 }
             }
-            return $procedure->getIsSingleRow() ? null : $result;
+            return $procedure->isSingleRow() ? null : $result;
+        }
+
+        /**
+         * @param Procedure $procedure
+         * @return bool Decode JSON data as array.
+         */
+        private function prepareIsJsonAsArray(Procedure $procedure) {
+            $isJsonAsArray = $procedure->isJsonAsArray();
+            if (is_null($isJsonAsArray)) {
+                $isJsonAsArray = $this->isJsonAsArray;
+            }
+            if (is_null($isJsonAsArray)) {
+                $isJsonAsArray = true;
+            }
+            return $isJsonAsArray;
         }
 
         /**

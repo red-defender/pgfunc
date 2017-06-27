@@ -124,6 +124,7 @@ namespace PgFunc {
          *
          * @param string $name Setting name.
          * @param mixed $value Setting value (null means default value).
+         * @return self
          * @throws Usage When transaction is inactive.
          * @throws Database When query fails.
          */
@@ -151,6 +152,7 @@ namespace PgFunc {
                     $exception
                 );
             }
+            return $this;
         }
 
         /**
@@ -181,8 +183,8 @@ namespace PgFunc {
             static $savepointId = 0;
             $this->savepointId = ++$savepointId;
             $this->query('SAVEPOINT sp' . $savepointId);
-            $transactionIdList = array_keys(self::$savepoints[$this->connectionId]);
-            $this->transactionId = end($transactionIdList);
+            $transactionIds = array_keys(self::$savepoints[$this->connectionId]);
+            $this->transactionId = end($transactionIds);
             self::$savepoints[$this->connectionId][$this->transactionId][$savepointId] = $savepointId;
         }
 
