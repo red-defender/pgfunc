@@ -84,7 +84,7 @@ namespace PgFunc {
                 $this->applyLocalParams($sql, $parameters, $localParams);
             }
             $exception = null;
-            $queryAttemptsCount = $procedure->getQueryAttemptsCount() ?: $this->queryAttemptsCount ?: 3;
+            $queryAttemptsCount = $procedure->getQueryAttemptsCount() ?: $this->queryAttemptsCount ?: 2;
 
             while (--$queryAttemptsCount >= 0) {
                 $statement = $this->getStatement($sql);
