@@ -5,7 +5,7 @@
     "require" : {
         "php" : ">=5.5.0",
         "ext-pdo" : "*",
-        "ext-pdo_pqsql" : "*"
+        "ext-pdo_pgsql" : "*"
     },
     "autoload" : {
         "psr-4" : {"PgFunc\\" : "src/PgFunc/"}
