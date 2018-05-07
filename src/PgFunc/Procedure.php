@@ -17,9 +17,14 @@ namespace PgFunc {
         /**
          * Possible return types of the procedure.
          */
-        const RETURN_VOID   = 'VOID';
+        const RETURN_VOID       = 'VOID';
+        const RETURN_SINGLE     = 'SINGLE';
+        const RETURN_MULTIPLE   = 'MULTIPLE';
+        /** @deprecated Use SINGLE or MULTIPLE return types. */
         const RETURN_SIMPLE = 'SIMPLE';
+        /** @deprecated Use SINGLE or MULTIPLE return types. */
         const RETURN_RECORD = 'RECORD';
+        /** @deprecated Use SINGLE or MULTIPLE return types. */
         const RETURN_ARRAY  = 'ARRAY';
 
         /**
@@ -54,6 +59,9 @@ namespace PgFunc {
 
         /**
          * @var bool Result set always contains one row.
+         *
+         * @deprecated Use SINGLE or MULTIPLE return types.
+         * @see setReturnType()
          */
         protected $isSingleRow = false;
 
@@ -145,6 +153,8 @@ namespace PgFunc {
         final public function setReturnType($returnType) {
             $returnTypes = [
                 self::RETURN_VOID,
+                self::RETURN_SINGLE,
+                self::RETURN_MULTIPLE,
                 self::RETURN_SIMPLE,
                 self::RETURN_RECORD,
                 self::RETURN_ARRAY,
@@ -167,6 +177,9 @@ namespace PgFunc {
         /**
          * @param bool $isSingleRow Result set always contains one row.
          * @return self
+         *
+         * @deprecated Use SINGLE or MULTIPLE return types.
+         * @see setReturnType()
          */
         final public function setIsSingleRow($isSingleRow) {
             $this->isSingleRow = (bool) $isSingleRow;
@@ -175,9 +188,12 @@ namespace PgFunc {
 
         /**
          * @return bool Result set always contains one row.
+         *
+         * @deprecated Use SINGLE or MULTIPLE return types.
+         * @see getReturnType()
          */
         final public function isSingleRow() {
-            return $this->isSingleRow;
+            return $this->isSingleRow || $this->returnType === self::RETURN_SINGLE;
         }
 
         /**
@@ -430,16 +446,8 @@ namespace PgFunc {
                 return $this->sqlCache;
             }
             $sql = $this->name . '(' . $this->generateSqlParameters() . ')';
-            switch ($this->returnType) {
-                case self::RETURN_SIMPLE:
-                    $sql = 'TO_JSON(' . $sql . ') AS ' . self::RESULT_FIELD;
-                    break;
-                case self::RETURN_RECORD:
-                    $sql = 'ROW_TO_JSON(' . $sql . ') AS ' . self::RESULT_FIELD;
-                    break;
-                case self::RETURN_ARRAY:
-                    $sql = 'ARRAY_TO_JSON(' . $sql . ') AS ' . self::RESULT_FIELD;
-                    break;
+            if ($this->returnType !== self::RETURN_VOID) {
+                $sql = 'TO_JSON(' . $sql . ') AS ' . self::RESULT_FIELD;
             }
             $sql = 'SELECT ' . $sql;
             if ($this->isCacheable) {
