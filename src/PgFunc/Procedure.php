@@ -48,7 +48,7 @@ namespace PgFunc {
         protected $optionals = [];
 
         /**
-         * @var string|null VARIADIC parameter name.
+         * @var string|int|null VARIADIC parameter name or position.
          */
         protected $variadic;
 
@@ -91,6 +91,11 @@ namespace PgFunc {
         protected $sqlCache;
 
         /**
+         * @var int Last positional parameter number.
+         */
+        protected $positionalNumber = 0;
+
+        /**
          * Constructor method may be overridden to pass name check.
          *
          * @param string $name Procedure name (optionally schema-qualified).
@@ -102,7 +107,7 @@ namespace PgFunc {
         /**
          * Add parameter definition.
          *
-         * @param string $name Parameter name.
+         * @param string|int $name Parameter name or position.
          * @param mixed $definition Parameter definition.
          * @param bool $isOptional Flag for optional parameter.
          * @param bool $isVariadic Flag for VARIADIC parameter.
@@ -110,7 +115,11 @@ namespace PgFunc {
          * @throws Usage When definition is invalid.
          */
         final public function addParameter($name, $definition, $isOptional = false, $isVariadic = false) {
-            $name = $this->checkIdentifier($name, 'Invalid parameter name: ' . $name);
+            if (! is_int($name)) {
+                $name = $this->checkIdentifier($name, 'Invalid parameter name: ' . $name);
+            } elseif ($name !== $this->positionalNumber + 1) {
+                throw new Usage('Invalid parameter position: ' . $name, Exception::INVALID_DEFINITION);
+            }
             if (isset($this->parameters[$name])) {
                 throw new Usage('Parameter is already defined: ' . $name, Exception::INVALID_DEFINITION);
             }
@@ -141,6 +150,9 @@ namespace PgFunc {
             if ($isOptional) {
                 $this->optionals[$name] = true;
                 $this->isCacheable = false;
+            }
+            if (is_int($name)) {
+                $this->positionalNumber++;
             }
             return $this;
         }
@@ -243,13 +255,15 @@ namespace PgFunc {
         /**
          * Set actual parameter value.
          *
-         * @param string $name Parameter name.
+         * @param string|int $name Parameter name or position.
          * @param mixed $data Parameter value.
          * @return self
          * @throws Usage When value is invalid.
          */
         final public function setData($name, $data) {
-            $name = $this->checkIdentifier($name, 'Invalid parameter name: ' . $name);
+            if (! is_int($name)) {
+                $name = $this->checkIdentifier($name, 'Invalid parameter name: ' . $name);
+            }
             if (empty($this->parameters[$name])) {
                 throw new Usage('Unknown parameter: ' . $name, Exception::INVALID_DATA);
             }
@@ -279,6 +293,19 @@ namespace PgFunc {
                     throw new Usage('Required parameter is missing: ' . $name, Exception::INVALID_DATA);
                 }
             }
+
+            // Reordering positional parameters.
+            uksort($this->data, function ($name1, $name2) {
+                switch (true) {
+                    case is_int($name1) && is_int($name2):
+                        return ($name1 < $name2) ? -1 : 1;
+                    case is_int($name1):
+                        return -1;
+                    case is_int($name2):
+                        return 1;
+                }
+                return 0;
+            });
             return [$this->generateSql(), $this->generateParameters()];
         }
 
@@ -376,7 +403,7 @@ namespace PgFunc {
          *
          * Recursive method.
          *
-         * @param array|string|SpecialType $definition Parameter definition.
+         * @param string|array|SpecialType $definition Parameter definition.
          * @param mixed $data Parameter value.
          * @param string $keyPath Current value prefix in nested types.
          * @return mixed Checked value.
@@ -466,7 +493,7 @@ namespace PgFunc {
             $index = 0;
             foreach ($this->data as $name => $value) {
                 $sql = $this->generateSqlValue($value, $this->parameters[$name], 'p' . $index, true);
-                $sql = $name . ':=' . $sql;
+                $sql = is_int($name) ? $sql : ($name . '=>' . $sql);
                 if ($name === $this->variadic) {
                     $sql = 'VARIADIC ' . $sql;
                 }
@@ -482,7 +509,7 @@ namespace PgFunc {
          * Recursive method.
          *
          * @param mixed $value Parameter value.
-         * @param array|string|SpecialType $definition Parameter definition.
+         * @param string|array|SpecialType $definition Parameter definition.
          * @param string $prefix Placeholder prefix.
          * @param bool $isType Add SQL type name to placeholder.
          * @return string SQL placeholder string.
@@ -524,7 +551,7 @@ namespace PgFunc {
          *
          * Recursive method.
          *
-         * @param array|string|SpecialType $definition Parameter definition.
+         * @param string|array|SpecialType $definition Parameter definition.
          * @return string SQL string with full type name.
          */
         private function generateSqlType($definition) {
@@ -560,7 +587,7 @@ namespace PgFunc {
          * Recursive method.
          *
          * @param mixed $value Parameter value.
-         * @param array|string|SpecialType $definition Parameter definition.
+         * @param string|array|SpecialType $definition Parameter definition.
          * @param string $prefix Placeholder prefix.
          * @return array Values array.
          */
