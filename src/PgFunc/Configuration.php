@@ -37,6 +37,7 @@ namespace PgFunc {
             'keepalives_interval'       => null,
             'krbsrvname'                => null,
             'options'                   => null,
+            'passfile'                  => null,
             'port'                      => null,
             'requirepeer'               => null,
             'requiressl'                => null,
@@ -47,6 +48,7 @@ namespace PgFunc {
             'sslkey'                    => null,
             'sslmode'                   => null,
             'sslrootcert'               => null,
+            'target_session_attrs'      => null,
             'tty'                       => null,
         ];
 
@@ -294,6 +296,15 @@ namespace PgFunc {
         }
 
         /**
+         * @param string $passFile Libpq connection setting "passfile".
+         * @return self
+         */
+        final public function setPassFile($passFile) {
+            $this->dsnParts['passfile'] = (string) $passFile;
+            return $this;
+        }
+
+        /**
          * @param int $port Libpq connection setting "port".
          * @return self
          */
@@ -380,6 +391,15 @@ namespace PgFunc {
          */
         final public function setSslRootCert($sslRootCert) {
             $this->dsnParts['sslrootcert'] = (string) $sslRootCert;
+            return $this;
+        }
+
+        /**
+         * @param string $targetSessionAttrs Libpq connection setting "target_session_attrs".
+         * @return self
+         */
+        final public function setTargetSessionAttrs($targetSessionAttrs) {
+            $this->dsnParts['target_session_attrs'] = (string) $targetSessionAttrs;
             return $this;
         }
 
