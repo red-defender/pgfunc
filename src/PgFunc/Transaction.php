@@ -99,7 +99,7 @@ namespace PgFunc {
             if ($this->savepointId) {
                 return $this->finalizeSavepoint('RELEASE SAVEPOINT sp' . $this->savepointId, $this->savepointId);
             } else {
-                return $this->finalizeTransaction('commit');
+                return $this->finalizeTransaction('COMMIT');
             }
         }
 
@@ -115,7 +115,7 @@ namespace PgFunc {
                     $this->savepointId + 1
                 );
             } else {
-                return $this->finalizeTransaction('rollBack');
+                return $this->finalizeTransaction('ROLLBACK');
             }
         }
 
@@ -159,7 +159,7 @@ namespace PgFunc {
          * Start transaction or create savepoint in database.
          */
         private function begin() {
-            if ($this->invoke('inTransaction')) {
+            if ($this->isTransaction()) {
                 $this->createSavepoint();
             } else {
                 $this->beginTransaction();
@@ -172,7 +172,7 @@ namespace PgFunc {
         private function beginTransaction() {
             static $transactionId = 0;
             $this->transactionId = ++$transactionId;
-            $this->invoke('beginTransaction');
+            $this->query('BEGIN');
             self::$savepoints[$this->connectionId][$transactionId] = [];
         }
 
@@ -191,15 +191,15 @@ namespace PgFunc {
         /**
          * Commit or rollback transaction.
          *
-         * @param string $method Connection method for invoking.
+         * @param string $query SQL statement for querying.
          * @return bool Command was really invoked.
          */
-        private function finalizeTransaction($method) {
+        private function finalizeTransaction($query) {
             if (! isset(self::$savepoints[$this->connectionId][$this->transactionId])) {
                 return false;
             }
 
-            $this->invoke($method);
+            $this->query($query);
             unset(self::$savepoints[$this->connectionId][$this->transactionId]);
             return true;
         }
@@ -227,17 +227,16 @@ namespace PgFunc {
         }
 
         /**
-         * Invoke connection method.
+         * Getting current transaction state.
          *
-         * @param string $method Connection method for invoking.
-         * @return mixed Result of method invoking.
+         * @return bool Transaction already started.
          * @throws Database When query fails.
          */
-        private function invoke($method) {
+        private function isTransaction() {
             try {
-                return $this->db->$method();
+                return $this->db->inTransaction();
             } catch (PDOException $exception) {
-                throw new Database('Transaction error in method: ' . $method, Exception::TRANSACTION_ERROR, $exception);
+                throw new Database('Error getting transaction state', Exception::TRANSACTION_ERROR, $exception);
             }
         }
 
@@ -251,7 +250,7 @@ namespace PgFunc {
             try {
                 $this->db->query($query);
             } catch (PDOException $exception) {
-                throw new Database('Savepoint error in query: ' . $query, Exception::TRANSACTION_ERROR, $exception);
+                throw new Database('Transaction error in query: ' . $query, Exception::TRANSACTION_ERROR, $exception);
             }
         }
     }

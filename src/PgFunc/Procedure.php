@@ -20,80 +20,66 @@ namespace PgFunc {
         const RETURN_VOID       = 'VOID';
         const RETURN_SINGLE     = 'SINGLE';
         const RETURN_MULTIPLE   = 'MULTIPLE';
-        /** @deprecated Use SINGLE or MULTIPLE return types. */
-        const RETURN_SIMPLE = 'SIMPLE';
-        /** @deprecated Use SINGLE or MULTIPLE return types. */
-        const RETURN_RECORD = 'RECORD';
-        /** @deprecated Use SINGLE or MULTIPLE return types. */
-        const RETURN_ARRAY  = 'ARRAY';
-
-        /**
-         * Alias for result field.
-         */
-        const RESULT_FIELD = 'result';
 
         /**
          * @var string Procedure name (may contain a schema name).
          */
-        protected $name = '';
+        private $name;
 
         /**
          * @var array Parameters definition array.
          */
-        protected $parameters = [];
+        private $parameters = [];
 
         /**
          * @var bool[] Optional parameters flags.
          */
-        protected $optionals = [];
+        private $optionals = [];
 
         /**
          * @var string|int|null VARIADIC parameter name or position.
          */
-        protected $variadic;
+        private $variadic;
 
         /**
          * @var string Current return type.
          */
-        protected $returnType = self::RETURN_VOID;
+        private $returnType = self::RETURN_VOID;
 
         /**
-         * @var bool Result set always contains one row.
-         *
-         * @deprecated Use SINGLE or MULTIPLE return types.
-         * @see setReturnType()
+         * @var callable|null Callback for modifying rows of result set.
          */
-        protected $isSingleRow = false;
+        private $resultCallback;
 
         /**
          * @var callable|null Callback for identifying rows of result set.
          */
-        protected $resultIdentifierCallback;
+        private $resultIdentifierCallback;
 
         /**
          * @var string[] Array of known error messages.
          */
-        protected $errorMap = [];
+        private $errorMap = [];
 
         /**
          * @var array Current parameters values.
          */
-        protected $data = [];
+        private $data = [];
 
         /**
          * @var bool SQL query string can be cached.
          */
-        protected $isCacheable = true;
+        private $isCacheable = true;
 
         /**
          * @var string|null Cached SQL query string.
          */
-        protected $sqlCache;
+        private $sqlCache;
 
         /**
          * @var int Last positional parameter number.
          */
-        protected $positionalNumber = 0;
+        private $positionalNumber = 0;
 
         /**
          * Constructor method may be overridden to pass name check.
@@ -119,6 +105,8 @@ namespace PgFunc {
                 $name = $this->checkIdentifier($name, 'Invalid parameter name: ' . $name);
             } elseif ($name !== $this->positionalNumber + 1) {
                 throw new Usage('Invalid parameter position: ' . $name, Exception::INVALID_DEFINITION);
+            } elseif (! $isOptional && ! empty($this->optionals[$this->positionalNumber])) {
+                throw new Usage('Required parameter follows the optional: ' . $name, Exception::INVALID_DEFINITION);
             }
             if (isset($this->parameters[$name])) {
                 throw new Usage('Parameter is already defined: ' . $name, Exception::INVALID_DEFINITION);
@@ -167,9 +155,6 @@ namespace PgFunc {
                 self::RETURN_VOID,
                 self::RETURN_SINGLE,
                 self::RETURN_MULTIPLE,
-                self::RETURN_SIMPLE,
-                self::RETURN_RECORD,
-                self::RETURN_ARRAY,
             ];
             if (! in_array($returnType, $returnTypes, true)) {
                 throw new Usage('Unknown return type: ' . $returnType, Exception::INVALID_RETURN_TYPE);
@@ -187,25 +172,19 @@ namespace PgFunc {
         }
 
         /**
-         * @param bool $isSingleRow Result set always contains one row.
+         * @param callable $resultCallback Callback for modifying rows of result set.
          * @return self
-         *
-         * @deprecated Use SINGLE or MULTIPLE return types.
-         * @see setReturnType()
          */
-        final public function setIsSingleRow($isSingleRow) {
-            $this->isSingleRow = (bool) $isSingleRow;
+        final public function setResultCallback(callable $resultCallback) {
+            $this->resultCallback = $resultCallback;
             return $this;
         }
 
         /**
-         * @return bool Result set always contains one row.
-         *
-         * @deprecated Use SINGLE or MULTIPLE return types.
-         * @see getReturnType()
+         * @return callable|null Callback for modifying rows of result set.
          */
-        final public function isSingleRow() {
-            return $this->isSingleRow || $this->returnType === self::RETURN_SINGLE;
+        final public function getResultCallback() {
+            return $this->resultCallback;
         }
 
         /**
@@ -218,7 +197,7 @@ namespace PgFunc {
         }
 
         /**
-         * @return callable|null Callback for identify rows of result set.
+         * @return callable|null Callback for identifying rows of result set.
          */
         final public function getResultIdentifierCallback() {
             return $this->resultIdentifierCallback;
@@ -294,18 +273,9 @@ namespace PgFunc {
                 }
             }
 
-            // Reordering positional parameters.
-            uksort($this->data, function ($name1, $name2) {
-                switch (true) {
-                    case is_int($name1) && is_int($name2):
-                        return ($name1 < $name2) ? -1 : 1;
-                    case is_int($name1):
-                        return -1;
-                    case is_int($name2):
-                        return 1;
-                }
-                return 0;
-            });
+            // Reordering and checking positional parameters.
+            $this->reorderData();
+
             return [$this->generateSql(), $this->generateParameters()];
         }
 
@@ -464,17 +434,46 @@ namespace PgFunc {
         }
 
         /**
+         * Reordering and checking positional parameters.
+         *
+         * @throws Usage When optional positional parameters are in wrong order.
+         */
+        private function reorderData() {
+            uksort($this->data, function ($name1, $name2) {
+                switch (true) {
+                    case is_int($name1) && is_int($name2):
+                        return ($name1 < $name2) ? -1 : 1;
+                    case is_int($name1):
+                        return -1;
+                    case is_int($name2):
+                        return 1;
+                }
+                return 0;
+            });
+
+            // Checking correct order of positional parameters.
+            $positionalNames = array_filter(array_keys($this->data), 'is_int');
+            if ($positionalNames && $positionalNames !== range(1, count($positionalNames))) {
+                throw new Usage('Invalid positional parameters sequence', Exception::INVALID_DATA);
+            }
+        }
+
+        /**
          * Generate full SQL query string with placeholders.
          *
          * @return string
+         * @throws Usage When procedure name is empty.
          */
         private function generateSql() {
             if ($this->sqlCache) {
                 return $this->sqlCache;
             }
+            if (empty($this->name)) {
+                throw new Usage('Empty procedure name', Exception::INVALID_DEFINITION);
+            }
             $sql = $this->name . '(' . $this->generateSqlParameters() . ')';
             if ($this->returnType !== self::RETURN_VOID) {
-                $sql = 'TO_JSON(' . $sql . ') AS ' . self::RESULT_FIELD;
+                $sql = 'TO_JSON(' . $sql . ')';
             }
             $sql = 'SELECT ' . $sql;
             if ($this->isCacheable) {

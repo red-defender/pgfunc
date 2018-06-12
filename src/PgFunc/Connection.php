@@ -257,22 +257,24 @@ namespace PgFunc {
                 return null;
             }
 
+            $isSingleRow = $procedure->getReturnType() === Procedure::RETURN_SINGLE;
+            $resultCallback = $procedure->getResultCallback();
             $resultIdentifierCallback = $procedure->getResultIdentifierCallback();
             $isJsonAsArray = $this->prepareIsJsonAsArray($procedure);
             $result = [];
             foreach ($statement as $data) {
-                $data = json_decode($data[Procedure::RESULT_FIELD], $isJsonAsArray);
-                if ($procedure->isSingleRow()) {
-                    return $data;
+                $data = json_decode($data[0], $isJsonAsArray);
+                if ($isSingleRow) {
+                    return $resultCallback ? $resultCallback($data) : $data;
                 }
 
-                if (! is_null($resultIdentifierCallback)) {
-                    $result[$resultIdentifierCallback($data)] = $data;
+                if ($resultIdentifierCallback) {
+                    $result[$resultIdentifierCallback($data)] = $resultCallback ? $resultCallback($data) : $data;
                 } else {
-                    $result[] = $data;
+                    $result[] = $resultCallback ? $resultCallback($data) : $data;
                 }
             }
-            return $procedure->isSingleRow() ? null : $result;
+            return $isSingleRow ? null : $result;
         }
 
         /**
