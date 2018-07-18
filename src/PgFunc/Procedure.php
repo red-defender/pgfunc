@@ -47,9 +47,9 @@ namespace PgFunc {
         private $returnType = self::RETURN_VOID;
 
         /**
-         * @var callable|null Callback for modifying rows of result set.
+         * @var callable[] Callbacks for modifying rows of result set.
          */
-        private $resultCallback;
+        private $resultCallbacks = [];
 
         /**
          * @var callable|null Callback for identifying rows of result set.
@@ -172,19 +172,31 @@ namespace PgFunc {
         }
 
         /**
+         * @deprecated
+         * @see addResultCallback
+         *
          * @param callable $resultCallback Callback for modifying rows of result set.
          * @return self
          */
         final public function setResultCallback(callable $resultCallback) {
-            $this->resultCallback = $resultCallback;
+            $this->resultCallbacks = [$resultCallback];
             return $this;
         }
 
         /**
-         * @return callable|null Callback for modifying rows of result set.
+         * @param callable $resultCallback Callback for modifying rows of result set.
+         * @return self
          */
-        final public function getResultCallback() {
-            return $this->resultCallback;
+        final public function addResultCallback(callable $resultCallback) {
+            $this->resultCallbacks[] = $resultCallback;
+            return $this;
+        }
+
+        /**
+         * @return callable[] Callbacks for modifying rows of result set.
+         */
+        final public function getResultCallbacks() {
+            return $this->resultCallbacks;
         }
 
         /**

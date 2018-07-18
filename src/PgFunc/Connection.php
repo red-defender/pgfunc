@@ -258,20 +258,19 @@ namespace PgFunc {
             }
 
             $isSingleRow = $procedure->getReturnType() === Procedure::RETURN_SINGLE;
-            $resultCallback = $procedure->getResultCallback();
             $resultIdentifierCallback = $procedure->getResultIdentifierCallback();
             $isJsonAsArray = $this->prepareIsJsonAsArray($procedure);
             $result = [];
             foreach ($statement as $data) {
                 $data = json_decode($data[0], $isJsonAsArray);
                 if ($isSingleRow) {
-                    return $resultCallback ? $resultCallback($data) : $data;
+                    return $this->applyResultCallbacks($procedure, $data);
                 }
 
                 if ($resultIdentifierCallback) {
-                    $result[$resultIdentifierCallback($data)] = $resultCallback ? $resultCallback($data) : $data;
+                    $result[$resultIdentifierCallback($data)] = $this->applyResultCallbacks($procedure, $data);
                 } else {
-                    $result[] = $resultCallback ? $resultCallback($data) : $data;
+                    $result[] = $this->applyResultCallbacks($procedure, $data);
                 }
             }
             return $isSingleRow ? null : $result;
@@ -362,6 +361,19 @@ namespace PgFunc {
                     throw $databaseException;
             }
             return $databaseException;
+        }
+
+        /**
+         * @param Procedure $procedure
+         * @param mixed $data Row of result set.
+         *
+         * @return mixed Modified row of result set.
+         */
+        private function applyResultCallbacks(Procedure $procedure, $data) {
+            foreach ($procedure->getResultCallbacks() as $resultCallback) {
+                $data = $resultCallback($data);
+            }
+            return $data;
         }
     }
 }
