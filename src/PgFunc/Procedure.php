@@ -504,7 +504,7 @@ namespace PgFunc {
             $index = 0;
             foreach ($this->data as $name => $value) {
                 $sql = $this->generateSqlValue($value, $this->parameters[$name], 'p' . $index, true);
-                $sql = is_int($name) ? $sql : ($name . '=>' . $sql);
+                $sql = is_int($name) ? $sql : ($name . ':=' . $sql);
                 if ($name === $this->variadic) {
                     $sql = 'VARIADIC ' . $sql;
                 }
