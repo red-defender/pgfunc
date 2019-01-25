@@ -216,7 +216,6 @@ namespace PgFunc {
                     return PDO::PARAM_BOOL;
 
                 case is_int($value);
-                case is_float($value):
                     return PDO::PARAM_INT;
 
                 case is_resource($value):
